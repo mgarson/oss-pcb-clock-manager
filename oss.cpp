@@ -17,7 +17,8 @@ typedef struct
 {
         int proc;       // Number of processes; default 1
         int simul;      // Number of simulatenous processes; default 1
-        int iter;       // Number of iterations; default 1
+        int timelim;    
+	int interval;
 
 } options_t;
 
@@ -36,7 +37,7 @@ int nanoSec = 0;
 // Method to print information on command line arguments
 void print_usage(const char * app)
 {
-        fprintf (stdout, "usage: %s [-h] [-n proc] [-s simul] [-t ]\n",\
+        fprintf (stdout, "usage: %s [-h] [-n proc] [-s simul] [-t timelimitForChildren] [-i intervalInMsToLaunchChildren\n",\
                         app);
         fprintf (stdout, "      proc is the number of total children to launch\n");
         fprintf (stdout, "      simul indicates how many children are to be allowed to run simultaneously\n");
@@ -86,13 +87,13 @@ int main(int argc, char* argv[])
         //Set default values
         options.proc = 1;
         options.simul = 1;
-        options.iter = 1;
+        options.timelim = 1;
 
 	 // Values to keep track of child iterations
         int total = 0; // Total amount of processes
         int running = 0; // Processes currently running
 
-        const char optstr[] = "hn:s:t:"; // options h, n, s, t
+        const char optstr[] = "hn:s:t:i:"; // options h, n, s, t, i
         char opt;
 
 	   // Parse command line arguments with getopt
@@ -178,7 +179,7 @@ int main(int argc, char* argv[])
                         options.simul = atoi(optarg);
                         break;
 
-                case 't': // Total amount of iterations in each child process
+                case 't': // Total amount of
                         // Checks if t's argument starts with '-'
                         if (optarg[0] == '-')
                         {
@@ -211,7 +212,7 @@ int main(int argc, char* argv[])
                         }
 
                         // Sets iter to optarg and breaks
-                        options.iter = atoi(optarg);
+                        options.timelim = atoi(optarg);
                         break;
                 default:
                         // Prints message that option given is invalid, prints usage, and exits program
@@ -222,7 +223,7 @@ int main(int argc, char* argv[])
 	}
 
 	shareMem();
-	 string str = to_string(options.iter);
+	 string str = to_string(options.timelim);
         // Creates new char array to hold value to be passed into child program
         char* arg = new char[str.length()+1];
         // Copies str to arg so it is able to be passed into child program
