@@ -223,6 +223,7 @@ int main(int argc, char* argv[])
 	}
 
 	shareMem();
+	incrementClock();
 	 string str = to_string(options.timelim);
         // Creates new char array to hold value to be passed into child program
         char* arg = new char[str.length()+1];
