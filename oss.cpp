@@ -46,7 +46,7 @@ void print_usage(const char * app)
 
 void incrementClock()
 {
-	nanoSec += 100000000;
+	nanoSec += 1000000;
 	if (nanoSec >= 1000000000) {
 		nanoSec -= 1000000000;
 		sec++;
@@ -223,13 +223,11 @@ int main(int argc, char* argv[])
 	}
 
 	shareMem();
-	incrementClock();
 	 string str = to_string(options.timelim);
         // Creates new char array to hold value to be passed into child program
         char* arg = new char[str.length()+1];
         // Copies str to arg so it is able to be passed into child program
         strcpy(arg, str.c_str());
-
         // Loop that will continue until specified amount of child processes is reached or until running processes is 0
         // Ensures only the specified amount of processes are able to be run, and that no processes are still running when loop ends
         while (total < options.proc || running > 0)
@@ -260,18 +258,23 @@ int main(int argc, char* argv[])
                                 // Increment total created processes and running processes
                                 total++;
                                 running++;
+				incrementClock();
+				printf("OSS: Clock updated in parent process: %d sec, %d ns\n", shm_ptr[0], shm_ptr[1]);
                         }
-                }
+                
 
+		}
+			
 			int status;
                         // Wait for any child process to finish and set its pid to finishedChild
-                        pid_t finishedChild = waitpid(-1, &status, 0);
+                        pid_t finishedChild = waitpid(-1, &status, WNOHANG);
                         // Ensures a valid pid was returned, meaning child process successfully ended
                         if (finishedChild > 0)
                         {
                                 // Decrement amount of processes running 
                                 running--;
                         }
+			incrementClock();
         }
 
 	return 0;

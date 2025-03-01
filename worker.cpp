@@ -28,19 +28,27 @@ void shareMem()
 
 }
 
-void readClock()
+int readClock()
 {
 	int sec = shm_ptr[0];
 	int ns = shm_ptr[1];
 
 	printf("Clock time: %dsec and %dns\n", sec, ns);
+	return sec;
 }
 
 int main(int argc, char* argv[])
 {
 	shareMem();
-	readClock();
-
+	printf("Hello from worker!\n");
+	int sec = readClock();
+	int timeLim = atoi(argv[1]);
+	printf("Time limit: %d/n", timeLim);
+	while(timeLim >= sec)
+	{
+		printf("Still working!\n");
+		sec = readClock();
+	}
 	shmdt(shm_ptr);
 	return 0;
 }
