@@ -46,7 +46,7 @@ void print_usage(const char * app)
 
 void incrementClock()
 {
-	nanoSec += 1000000;
+	nanoSec += 200000;
 	if (nanoSec >= 1000000000) {
 		nanoSec -= 1000000000;
 		sec++;
@@ -88,10 +88,14 @@ int main(int argc, char* argv[])
         options.proc = 1;
         options.simul = 1;
         options.timelim = 1;
+	options.interval = 10;
 
 	 // Values to keep track of child iterations
         int total = 0; // Total amount of processes
         int running = 0; // Processes currently running
+	int lastForkSec = 0;
+	int lastForkNs = 0;
+
 
         const char optstr[] = "hn:s:t:i:"; // options h, n, s, t, i
         char opt;
@@ -211,9 +215,38 @@ int main(int argc, char* argv[])
                                 }
                         }
 
-                        // Sets iter to optarg and breaks
+                        // Sets timelim to optarg and breaks
                         options.timelim = atoi(optarg);
                         break;
+		case 'i':
+			if (optarg[0] == '-')
+			{
+				if (optarg[1] == 'n' || optarg[1] == 's' || optarg[1] == 't' || optarg[1] == 'h')
+				{
+					fprintf(stderr, "Error! Option i requires an argument.\n");
+					print_usage(argv[0]);
+					return EXIT_FAILURE;
+				}
+				// Means argument is not another option, but is invalid input
+				else
+				{
+					// Print error statement, print usage, and exit program
+					fprintf(stderr, "Error! Invalid input.\n");
+					print_usage(argv[0]);
+					return EXIT_FAILURE;	
+				}
+			}
+			// Loop to ensure all characters in t's argument are digits
+			for (int i = 0; optarg[i] != '\0'; i++)
+				if (!isdigit(optarg[i]))
+				{
+					// If non digit is found, print error statement, print usage, and exit program
+					fprintf(stderr, "Error! %s is not a valid number.\n", optarg);
+					return EXIT_FAILURE;
+				}
+			// Sets interval to optarg and breaks
+			options.interval = atoi(optarg);
+			break;
                 default:
                         // Prints message that option given is invalid, prints usage, and exits program
                         printf("Invalid option %c\n", optopt);
@@ -232,14 +265,31 @@ int main(int argc, char* argv[])
         // Ensures only the specified amount of processes are able to be run, and that no processes are still running when loop ends
         while (total < options.proc || running > 0)
         {
+		incrementClock();
 
                 // Loop that will continue until both total amount of processes is greater than/ equal to specified amount
                 // and current processes running is greater than/ equal to specified amount
                 while (total < options.proc && running < options.simul)
                 {
+			incrementClock();
+			printf("LastForkSec: %d, LastForKNs: %d\n", lastForkSec, lastForkNs);
+			printf("Current sec: %d, Current ns: %d\n", shm_ptr[0], shm_ptr[1]);
+			int diffSec = shm_ptr[0] - lastForkSec;
+			int diffNs = shm_ptr[1] - lastForkNs;
+			printf("Diff ns: %d\n", diffNs);
+			if (diffNs < 0)
+			{
+				diffSec--;
+				diffNs += 1000000000;
+			}
+			printf("Diff ns after if: %d\n", diffNs);
+			int totDiff = diffSec * 1000000000 + diffNs;
+			if (totDiff < options.interval){
+				fprintf(stderr, "Not enough time to fork new child. Current diff: %d\n", totDiff);	
+				break;}
                         // Fork a new child process 
                         pid_t childPid = fork();
-
+			printf("Forking new child, PID %d.\n", childPid);
                         if (childPid == 0) // Child process
                         {
                                 // Create array of arguments to pass to exec. "./user" is the program to execute, arg is the command line argument
@@ -256,6 +306,8 @@ int main(int argc, char* argv[])
                         else // Parent process
                         {
                                 // Increment total created processes and running processes
+				lastForkSec = shm_ptr[0];
+				lastForkNs = shm_ptr[1];
                                 total++;
                                 running++;
 				incrementClock();

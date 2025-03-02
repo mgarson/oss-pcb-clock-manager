@@ -33,22 +33,27 @@ int readClock()
 	int sec = shm_ptr[0];
 	int ns = shm_ptr[1];
 
-	printf("Clock time: %dsec and %dns\n", sec, ns);
+	//printf("Clock time: %dsec and %dns\n", sec, ns);
 	return sec;
 }
 
 int main(int argc, char* argv[])
 {
+
 	shareMem();
 	printf("Hello from worker!\n");
-	int sec = readClock();
-	int timeLim = atoi(argv[1]);
-	printf("Time limit: %d/n", timeLim);
-	while(timeLim >= sec)
+	int upper = atoi(argv[1]);
+	
+	srand(getpid()); 
+	int runTime = (rand() % upper) + 1;
+	int endSec = shm_ptr[0] + runTime;
+	int endNs = shm_ptr[1];
+	printf("Run time: %d. Generated at: %dsec and %dns\n", runTime, shm_ptr[0], shm_ptr[1]);
+
+	while(shm_ptr[0] < endSec || (shm_ptr[0] == endSec && shm_ptr[1] <= endNs))
 	{
-		printf("Still working!\n");
-		sec = readClock();
 	}
+	printf("Stopped loop at %dsec and %dns.\n", shm_ptr[0], shm_ptr[1]);
 	shmdt(shm_ptr);
 	return 0;
 }
