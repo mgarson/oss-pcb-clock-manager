@@ -1,3 +1,11 @@
+//Operating Systems Project One
+//Author: Maija Garson
+//Date: 03/03/2025
+//Description: A program that takes in command line options to run child processes up to a given amount. These processes will run 
+//simultaneoulsy up to the specified amount. The child process will continue to run up until a specified time and will execute at
+//specified intervals. This program also maintains and increments a clock that the children use to keep track of time. All relevant 
+//info is stored in a Process Control Block(PCB) table that prints every half second.
+
 #include <sys/wait.h>
 #include <string>
 #include <stdio.h>
@@ -19,12 +27,12 @@ typedef struct
 {
         int proc;       // Number of processes; default 1
         int simul;      // Number of simulatenous processes; default 1
-        int timelim;    
-	int interval;
+        int timelim;    // Upper bound for random time limit that children will run in seconds; default 1
+	int interval;   // Interval in nanoseconds to launch children; default 0
 
 } options_t;
 
-
+// Structure for Process Control Block
 typedef struct {
 int occupied; // either true or false
 pid_t pid; // process id of this child
@@ -32,9 +40,13 @@ int startSec; // time when it was forked
 int startNs; // time when it was forked
 } PCB;
 
+// Process table to hold PCB data
 PCB* processTable;
+// Shared memory pointer for system clock
 int *shm_ptr;
+// Seconds of system clock
 int sec = 0;
+// Nanoseconds of system clock
 int nanoSec = 0;
 
 // Method to print information on command line arguments
@@ -47,10 +59,13 @@ void print_usage(const char * app)
         fprintf (stdout, "      iter is the number to pass to the user process\n");
 }
 
+// Function to increment system clock
 void incrementClock()
 {
-	nanoSec += 200000;
-	if (nanoSec >= 1000000000) {
+	nanoSec += 1000; // Add 200000 ns
+	if (nanoSec >= 1000000000) // Determines if ns is larger than 1000000000
+	{
+		// If true, remove this value from ns and add 1 to sec
 		nanoSec -= 1000000000;
 		sec++;
 	}
@@ -61,22 +76,28 @@ void incrementClock()
 // Function to access and add to shared memory
 void shareMem()
 {
-	const int sh_key = ftok("main.c",0);
-	int shm_id = shmget( sh_key , sizeof(int) * 2 , IPC_CREAT | 0666  );
-	if (shm_id <= 0) 
+	// Generate key
+	const int sh_key = ftok("main.c",0); 
+	// Create shared memory
+	int shm_id = shmget( sh_key , sizeof(int) * 2 , IPC_CREAT | 0666  ); 
+	if (shm_id <= 0) // Check if shared memory get failed
 	{
+		// If true, print error statement and exit
    		fprintf(stderr,"Shared memory get failed\n");
    		exit(1);
 	}
 
-	shm_ptr = (int*)shmat(shm_id, 0, 0);
+	// Attach shared memory
+	shm_ptr = (int*)shmat(shm_id, 0, 0); 
 	if (shm_ptr <= 0 )
 	{
 		fprintf(stderr, "Shared memory attach failed\n");
 		exit(1);
 	}
-
-	shm_ptr[0] = 0;
+	
+	// Initialize shared memory pointers to represent clock. 
+	// Index 0 represents seconds, index 1 represents nanoseconds
+	shm_ptr[0] = 0; 
 	shm_ptr[1] = 0;
 	
 	//shmdt(clock);
@@ -116,8 +137,10 @@ void signal_handler(int sig)
 
 int main(int argc, char* argv[])
 {
+	// Signal that will terminate program after 60 sec (real time)
 	signal(SIGALRM, signal_handler);
 	alarm(60);
+
 	 // Structure to hold values for options in command line argument
         options_t options;
 
@@ -130,8 +153,8 @@ int main(int argc, char* argv[])
 	 // Values to keep track of child iterations
         int total = 0; // Total amount of processes
         int running = 0; // Processes currently running
-	int lastForkSec = 0;
-	int lastForkNs = 0;
+	int lastForkSec = 0; // Time in sec since last fork
+	int lastForkNs = 0; // Time in ns since last fork
 	
         const char optstr[] = "hn:s:t:i:"; // options h, n, s, t, i
         char opt;
@@ -219,7 +242,7 @@ int main(int argc, char* argv[])
                         options.simul = atoi(optarg);
                         break;
 
-                case 't': // Total amount of
+                case 't': // Time limit for child processes to run
                         // Checks if t's argument starts with '-'
                         if (optarg[0] == '-')
                         {
@@ -254,11 +277,14 @@ int main(int argc, char* argv[])
                         // Sets timelim to optarg and breaks
                         options.timelim = atoi(optarg);
                         break;
-		case 'i':
+		case 'i': // Interval in ns to launch children
+			// Checks if i's argument starts with "-"
 			if (optarg[0] == '-')
 			{
+				// Checks if next character is character of other option, meaning no argument given for i and another option given
 				if (optarg[1] == 'n' || optarg[1] == 's' || optarg[1] == 't' || optarg[1] == 'h')
 				{
+					// Print error statement, print usage, and exit program
 					fprintf(stderr, "Error! Option i requires an argument.\n");
 					print_usage(argv[0]);
 					return EXIT_FAILURE;
@@ -272,7 +298,7 @@ int main(int argc, char* argv[])
 					return EXIT_FAILURE;	
 				}
 			}
-			// Loop to ensure all characters in t's argument are digits
+			// Loop to ensure all characters in i's argument are digits
 			for (int i = 0; optarg[i] != '\0'; i++)
 				if (!isdigit(optarg[i]))
 				{
@@ -290,37 +316,48 @@ int main(int argc, char* argv[])
                         return EXIT_FAILURE;
                 }
 	}
-
+	// Set up shared memory for clock
 	shareMem();
+
+	// Allocate memory for process table based on total processes
 	processTable = new PCB[options.proc];
+
+	// Variables to track last printed time
 	long long int lastPrintSec = shm_ptr[0];
 	long long int lastPrintNs = shm_ptr[1];
-	long long int diffSec = 0;
-	long long int diffNs = 0;
-	long long int totDiff = 0;
 
+	// Initialize processTable, all occupied values set to 0
 	for (int i = 0; i < options.proc; i++)
 		processTable[i].occupied = 0;
 	 string str = to_string(options.timelim);
+
         // Creates new char array to hold value to be passed into child program
         char* arg = new char[str.length()+1];
         // Copies str to arg so it is able to be passed into child program
         strcpy(arg, str.c_str());
+
         // Loop that will continue until specified amount of child processes is reached or until running processes is 0
         // Ensures only the specified amount of processes are able to be run, and that no processes are still running when loop ends
         while (total < options.proc || running > 0)
-        {
+        {	
+		// Update system clock
 		incrementClock();
+
+		// Calculate time since last print for sec and ns
 		long long int printDiffSec = shm_ptr[0] - lastPrintSec;
 		long long int printDiffNs = shm_ptr[1] - lastPrintNs;
+		// Adjust ns value for subtraction resulting in negative value
 		if (printDiffNs<0)
 		{
 			printDiffSec--;
 			printDiffNs += 1000000000;
 		}
+		// Calculate total time since last print in ns
 		long long int printTotDiff = printDiffSec * 1000000000 + printDiffNs;
-		if (printTotDiff >= 500000000)
+		
+		if (printTotDiff >= 500000000) // Determine if time of last print was longer than .5 sec system time
 		{
+			// If true, print table and update time since last print in sec and ns
 			printTable(options.proc);
 			lastPrintSec = shm_ptr[0];
 			lastPrintNs = shm_ptr[1];
@@ -329,28 +366,37 @@ int main(int argc, char* argv[])
                 // and current processes running is greater than/ equal to specified amount
                 while (total < options.proc && running < options.simul)
                 {
+			// Update system clock
 			incrementClock();
+
+			// Calculate time since last for for sec and ns
 			long long int totDiffSec = shm_ptr[0] - lastForkSec;
     			long long int totDiffNs = shm_ptr[1] - lastForkNs;
-    			if (totDiffNs < 0) {
-        			totDiffSec--;
+			// Adjust ns value for subtraction resulting in negative value
+    			if (totDiffNs < 0) 
+			{
+				totDiffSec--;
         			totDiffNs += 1000000000;
-   				 }
-			    long long int totDiff = totDiffSec * 1000000000 + totDiffNs;
-
-			if (totDiff < options.interval){
+			}
+			// Calculate total time since last print in ns
+			long long int totDiff = totDiffSec * 1000000000 + totDiffNs;
+			
+			if (totDiff < options.interval) // Determine if time of last for was longer than specified interval time
+			{
+				// If not enough time, print error statement and break
 				fprintf(stderr, "Not enough time to fork new child. Current diff: %d\n", totDiff);	
-				break;}
+				break;
+			}
+
                         // Fork a new child process 
                         pid_t childPid = fork();
-			printf("Forking new child, PID %d.\n", childPid);
                         if (childPid == 0) // Child process
                         {
-                                // Create array of arguments to pass to exec. "./user" is the program to execute, arg is the command line argument
-                                // to be passed to "./user", and NULL shows it is the end of the argument list
+                                // Create array of arguments to pass to exec. "./worker" is the program to execute, arg is the command line argument
+                                // to be passed to "./worker", and NULL shows it is the end of the argument list
                                 char* args[] = {"./worker", arg, NULL};
 
-                                // Replace current process with "./user" process and pass iteration amount as parameter
+                                // Replace current process with "./worker" process and pass iteration amount as parameter
                                 execvp(args[0], args);
                                 // If this prints, means exec failed. 
                                 // Prints error message and exits
@@ -362,9 +408,11 @@ int main(int argc, char* argv[])
                                 // Increment total created processes and running processes
                                 total++;
                                 running++;
+				
+				// Increment clock
 				incrementClock();
-				printf("OSS: Clock updated in parent process: %d sec, %d ns\n", shm_ptr[0], shm_ptr[1]);
-
+				
+				// Update forked process in process table
 				for (int i = 0; i < options.proc; i++)
 				{
 					if (processTable[i].occupied == 0)
@@ -373,11 +421,10 @@ int main(int argc, char* argv[])
 						processTable[i].pid = childPid;
 						processTable[i].startSec = shm_ptr[0];
 						processTable[i].startNs = shm_ptr[1];
-						printf("ProcessTable[%d] marked as occupied. PID: %d, StartSec: %d, StartNs: %d\n",
-       i, processTable[i].pid, processTable[i].startSec, processTable[i].startNs);
 						break;
 					}
 				}
+				// Update time since last fork to current system time
 				lastForkSec = shm_ptr[0];
 				lastForkNs = shm_ptr[1];
                         }
@@ -398,7 +445,6 @@ int main(int argc, char* argv[])
 					if(processTable[i].occupied == 1 && processTable[i].pid == finishedChild)
 					{
 						processTable[i].occupied = 0;
-						printf("Cleared slot %d for PID %d\n", i, finishedChild);
 						break;
 					}
 				}
