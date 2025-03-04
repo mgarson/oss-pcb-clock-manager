@@ -41,19 +41,33 @@ int main(int argc, char* argv[])
 {
 
 	shareMem();
+	int endSec;
+	int endNs;
 	printf("Hello from worker!\n");
-	int upper = atoi(argv[1]);
-	
-	srand(getpid()); 
-	int runTime = (rand() % upper) + 1;
-	int endSec = shm_ptr[0] + runTime;
-	int endNs = shm_ptr[1];
-	printf("Run time: %d. Generated at: %dsec and %dns\n", runTime, shm_ptr[0], shm_ptr[1]);
-
-	while(shm_ptr[0] < endSec || (shm_ptr[0] == endSec && shm_ptr[1] <= endNs))
+	if(argv[2] != nullptr ) // Determines if first argument is null, meaning no value given for iter
 	{
+		endSec = shm_ptr[0] + atoi(argv[1]);
+		endNs = shm_ptr[1] + atoi(argv[2]);
+	
+		printf("Run time: %ssec and%sns\n", argv[1], argv[2]);
 	}
-	printf("Stopped loop at %dsec and %dns.\n", shm_ptr[0], shm_ptr[1]);
-	shmdt(shm_ptr);
-	return 0;
+	else
+	{	
+		int upper = atoi(argv[1]);
+	
+		srand(getpid()); 
+		int runTimeSec = (rand() % upper) + 1;
+		long long int runTimeNs = (rand() % 999999999);
+		endSec = shm_ptr[0] + runTimeSec;
+		endNs = shm_ptr[1] + runTimeNs;
+		printf("Run time: %dsec %dns. Generated at: %dsec and %dns\n", runTimeSec, runTimeNs, shm_ptr[0], shm_ptr[1]);
+	}
+
+		while(shm_ptr[0] < endSec || (shm_ptr[0] == endSec && shm_ptr[1] <= endNs))
+		{
+		}
+		printf("Stopped loop at %dsec and %dns.\n", shm_ptr[0], shm_ptr[1]);
+		shmdt(shm_ptr);
+		return 0;
+	
 }

@@ -9,6 +9,8 @@
 #include <cstring>
 #include <sys/ipc.h>
 #include <sys/shm.h>
+#include <signal.h>
+#include <time.h>
 
 using namespace std;
 
@@ -23,13 +25,14 @@ typedef struct
 } options_t;
 
 
-struct PCB {
+typedef struct {
 int occupied; // either true or false
 pid_t pid; // process id of this child
-int startSeconds; // time when it was forked
-int startNano; // time when it was forked
-};
+int startSec; // time when it was forked
+int startNs; // time when it was forked
+} PCB;
 
+PCB* processTable;
 int *shm_ptr;
 int sec = 0;
 int nanoSec = 0;
@@ -55,6 +58,7 @@ void incrementClock()
 	shm_ptr[1] = nanoSec;
 }
 
+// Function to access and add to shared memory
 void shareMem()
 {
 	const int sh_key = ftok("main.c",0);
@@ -79,8 +83,41 @@ void shareMem()
 
 }
 
+// Function to print formatted process table
+void printTable(int n)
+{
+
+	printf("OSS PID: %d SysClockS: %u SysClockNano: %u\n Process Table:\n", getpid(), shm_ptr[0], shm_ptr[1]);
+	printf("Entry\tOccupied\tPID\tStartS\tStartNs\n");
+	for (int i = 0; i < n; i++)
+	{
+		if(processTable[i].occupied == 1)
+		printf("%d\t%d\t\t%d\t%u\t%u\n", i, processTable[i].occupied, processTable[i].pid, processTable[i].startSec, processTable[i].startNs);
+	}
+	printf("\n");
+}
+
+void signal_handler(int sig)
+{
+	printf("60 seconds have passed, process(es) will now terminate.\n");
+	pid_t pid;
+	for (int i = 0; i < sizeof(processTable); i++)
+	{
+		if(processTable[i].occupied == 1)
+			pid = processTable[i].pid;
+
+		if (pid > 0)
+		{
+			kill(pid, SIGKILL);
+		}
+	}
+	exit(1);
+}
+
 int main(int argc, char* argv[])
 {
+	signal(SIGALRM, signal_handler);
+	alarm(60);
 	 // Structure to hold values for options in command line argument
         options_t options;
 
@@ -88,15 +125,14 @@ int main(int argc, char* argv[])
         options.proc = 1;
         options.simul = 1;
         options.timelim = 1;
-	options.interval = 10;
+	options.interval = 0;
 
 	 // Values to keep track of child iterations
         int total = 0; // Total amount of processes
         int running = 0; // Processes currently running
 	int lastForkSec = 0;
 	int lastForkNs = 0;
-
-
+	
         const char optstr[] = "hn:s:t:i:"; // options h, n, s, t, i
         char opt;
 
@@ -256,6 +292,15 @@ int main(int argc, char* argv[])
 	}
 
 	shareMem();
+	processTable = new PCB[options.proc];
+	long long int lastPrintSec = shm_ptr[0];
+	long long int lastPrintNs = shm_ptr[1];
+	long long int diffSec = 0;
+	long long int diffNs = 0;
+	long long int totDiff = 0;
+
+	for (int i = 0; i < options.proc; i++)
+		processTable[i].occupied = 0;
 	 string str = to_string(options.timelim);
         // Creates new char array to hold value to be passed into child program
         char* arg = new char[str.length()+1];
@@ -266,24 +311,33 @@ int main(int argc, char* argv[])
         while (total < options.proc || running > 0)
         {
 		incrementClock();
-
+		long long int printDiffSec = shm_ptr[0] - lastPrintSec;
+		long long int printDiffNs = shm_ptr[1] - lastPrintNs;
+		if (printDiffNs<0)
+		{
+			printDiffSec--;
+			printDiffNs += 1000000000;
+		}
+		long long int printTotDiff = printDiffSec * 1000000000 + printDiffNs;
+		if (printTotDiff >= 500000000)
+		{
+			printTable(options.proc);
+			lastPrintSec = shm_ptr[0];
+			lastPrintNs = shm_ptr[1];
+		}
                 // Loop that will continue until both total amount of processes is greater than/ equal to specified amount
                 // and current processes running is greater than/ equal to specified amount
                 while (total < options.proc && running < options.simul)
                 {
 			incrementClock();
-			printf("LastForkSec: %d, LastForKNs: %d\n", lastForkSec, lastForkNs);
-			printf("Current sec: %d, Current ns: %d\n", shm_ptr[0], shm_ptr[1]);
-			int diffSec = shm_ptr[0] - lastForkSec;
-			int diffNs = shm_ptr[1] - lastForkNs;
-			printf("Diff ns: %d\n", diffNs);
-			if (diffNs < 0)
-			{
-				diffSec--;
-				diffNs += 1000000000;
-			}
-			printf("Diff ns after if: %d\n", diffNs);
-			int totDiff = diffSec * 1000000000 + diffNs;
+			long long int totDiffSec = shm_ptr[0] - lastForkSec;
+    			long long int totDiffNs = shm_ptr[1] - lastForkNs;
+    			if (totDiffNs < 0) {
+        			totDiffSec--;
+        			totDiffNs += 1000000000;
+   				 }
+			    long long int totDiff = totDiffSec * 1000000000 + totDiffNs;
+
 			if (totDiff < options.interval){
 				fprintf(stderr, "Not enough time to fork new child. Current diff: %d\n", totDiff);	
 				break;}
@@ -306,12 +360,26 @@ int main(int argc, char* argv[])
                         else // Parent process
                         {
                                 // Increment total created processes and running processes
-				lastForkSec = shm_ptr[0];
-				lastForkNs = shm_ptr[1];
                                 total++;
                                 running++;
 				incrementClock();
 				printf("OSS: Clock updated in parent process: %d sec, %d ns\n", shm_ptr[0], shm_ptr[1]);
+
+				for (int i = 0; i < options.proc; i++)
+				{
+					if (processTable[i].occupied == 0)
+					{
+						processTable[i].occupied = 1;
+						processTable[i].pid = childPid;
+						processTable[i].startSec = shm_ptr[0];
+						processTable[i].startNs = shm_ptr[1];
+						printf("ProcessTable[%d] marked as occupied. PID: %d, StartSec: %d, StartNs: %d\n",
+       i, processTable[i].pid, processTable[i].startSec, processTable[i].startNs);
+						break;
+					}
+				}
+				lastForkSec = shm_ptr[0];
+				lastForkNs = shm_ptr[1];
                         }
                 
 
@@ -325,8 +393,17 @@ int main(int argc, char* argv[])
                         {
                                 // Decrement amount of processes running 
                                 running--;
+				for (int i = 0; i < 20; i++) 
+				{
+					if(processTable[i].occupied == 1 && processTable[i].pid == finishedChild)
+					{
+						processTable[i].occupied = 0;
+						printf("Cleared slot %d for PID %d\n", i, finishedChild);
+						break;
+					}
+				}
                         }
-			incrementClock();
+				incrementClock();
         }
 
 	return 0;
