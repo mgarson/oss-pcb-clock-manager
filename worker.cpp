@@ -1,8 +1,3 @@
-//Author: Maija Garson                                                                                              
-//Date: 03/03/2025
-//Description: A program that will print it's pid, parent's pid, the system clock time in seconds and nanoseconds, and the time this program should terminate
-//in seconds and nanoseconds. It will continue running at a randomly generated value that is at most the specified amount of time given in the command line
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
